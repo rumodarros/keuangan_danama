@@ -17,9 +17,9 @@ use App\Http\Controllers\StaffProfileController;
 |
 */
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::view('/', 'welcome')->name('landing');
+Route::view('/about', 'about')->name('about');
+Route::view('/contact', 'contact')->name('contact');
 
 Route::get('/dashboard', function () {
     return view('dashboard');
