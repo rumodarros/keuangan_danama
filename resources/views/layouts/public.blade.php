@@ -20,9 +20,15 @@
                     <a href="{{ route('landing') }}" class="hover:text-indigo-600">Beranda</a>
                     <a href="{{ route('about') }}" class="hover:text-indigo-600">Tentang</a>
                     <a href="{{ route('contact') }}" class="hover:text-indigo-600">Kontak</a>
-
                     @auth
-                        <a href="{{ url('/dashboard') }}" class="ml-4 px-3 py-2 rounded-md bg-indigo-600 text-white">Dashboard</a>
+                        @php $role = auth()->user()->role ?? null; @endphp
+                        @if($role === 'admin')
+                            <a href="{{ route('admin.dashboard') }}" class="ml-4 px-3 py-2 rounded-md bg-indigo-600 text-white">Dashboard</a>
+                        @elseif($role === 'staff')
+                            <a href="{{ route('staff.keuangan') }}" class="ml-4 px-3 py-2 rounded-md bg-indigo-600 text-white">Dashboard</a>
+                        @else
+                            <a href="{{ url('/dashboard') }}" class="ml-4 px-3 py-2 rounded-md bg-indigo-600 text-white">Dashboard</a>
+                        @endif
                     @else
                         <a href="{{ route('login') }}" class="ml-4 px-3 py-2 rounded-md border border-indigo-600 text-indigo-600">Masuk</a>
                     @endauth

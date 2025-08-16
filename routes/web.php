@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\DanaDesaController;
 use App\Http\Controllers\KeuanganController;
@@ -17,27 +18,24 @@ use App\Http\Controllers\StaffProfileController;
 |
 */
 
-Route::view('/', 'welcome')->name('landing');
-Route::view('/about', 'about')->name('about');
-Route::view('/contact', 'contact')->name('contact');
-
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
-
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
+Route::view('/', 'welcome')->name('landing');
 Route::view('/about', 'about')->name('about');
+Route::view('/contact', 'contact')->name('contact');
 
 /*
 | Auth routes (Breeze) are assumed already registered (auth middleware ready)
 | Admin routes (prefix: admin) - protected by 'auth' + 'admin' middleware
 */
 Route::prefix('admin')->name('admin.')->middleware(['auth','admin'])->group(function () {
+    // Dashboard admin
+    Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
+
     // Staff CRUD (admin manages staff)
     Route::resource('staff', StaffProfileController::class)->parameters(['staff' => 'staffProfile']);
 
