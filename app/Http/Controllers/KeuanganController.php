@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\DanaDesa;
 use App\Models\Keuangan;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class KeuanganController extends Controller
 {
@@ -48,9 +49,36 @@ class KeuanganController extends Controller
 
         $data['user_id'] = $request->user()->id;
 
-        Keuangan::create($data);
+        // jika ada dana_desa_id, cek saldo dan kurangi dana secara aman
+        if (!empty($data['dana_desa_id'])) {
+            DB::beginTransaction();
+            try {
+                $dana = DanaDesa::where('id', $data['dana_desa_id'])->lockForUpdate()->first();
+                if (!$dana) {
+                    DB::rollBack();
+                    return back()->withInput()->withErrors(['dana_desa_id' => 'Dana desa tidak ditemukan.']);
+                }
 
-        // NOTE: tidak otomatis mengubah dana_desa.jumlah karena tidak ada field tipe.
+                if ($dana->jumlah < $data['jumlah']) {
+                    DB::rollBack();
+                    return back()->withInput()->withErrors(['jumlah' => 'Jumlah melebihi saldo dana desa yang tersedia.']);
+                }
+
+                Keuangan::create($data);
+
+                $dana->jumlah = $dana->jumlah - $data['jumlah'];
+                $dana->save();
+
+                DB::commit();
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+        } else {
+            // tanpa dana, hanya simpan catatan
+            Keuangan::create($data);
+        }
+
         return redirect()->route($request->user()->role === 'admin' ? 'admin.keuangan.index' : 'staff.keuangan.index')
                          ->with('success', 'Catatan keuangan berhasil disimpan.');
     }
@@ -83,7 +111,63 @@ class KeuanganController extends Controller
             'dana_desa_id' => 'nullable|exists:dana_desa,id',
         ]);
 
-        $keuangan->update($data);
+        // atur perubahan pada dana jika ada perubahan jumlah atau dana_desa_id
+        $oldJumlah = $keuangan->jumlah;
+        $oldDanaId = $keuangan->dana_desa_id;
+        $newJumlah = $data['jumlah'];
+        $newDanaId = $data['dana_desa_id'] ?? null;
+
+        DB::beginTransaction();
+        try {
+            if ($oldDanaId && $oldDanaId == $newDanaId) {
+                // sama dana, cukup sesuaikan selisih
+                $dana = DanaDesa::where('id', $oldDanaId)->lockForUpdate()->first();
+                if (!$dana) {
+                    DB::rollBack();
+                    return back()->withInput()->withErrors(['dana_desa_id' => 'Dana desa lama tidak ditemukan.']);
+                }
+                $availableAfterRestore = $dana->jumlah + $oldJumlah; // jika kita kembalikan dulu
+                if ($availableAfterRestore < $newJumlah) {
+                    DB::rollBack();
+                    return back()->withInput()->withErrors(['jumlah' => 'Jumlah melebihi saldo dana desa yang tersedia setelah perubahan.']);
+                }
+                $dana->jumlah = $availableAfterRestore - $newJumlah;
+                $dana->save();
+            } else {
+                // jika berbeda, kembalikan ke dana lama dulu
+                if ($oldDanaId) {
+                    $oldDana = DanaDesa::where('id', $oldDanaId)->lockForUpdate()->first();
+                    if (!$oldDana) {
+                        DB::rollBack();
+                        return back()->withInput()->withErrors(['dana_desa_id' => 'Dana desa lama tidak ditemukan.']);
+                    }
+                    $oldDana->jumlah = $oldDana->jumlah + $oldJumlah;
+                    $oldDana->save();
+                }
+
+                // lalu tarik dari dana baru jika ada
+                if ($newDanaId) {
+                    $newDana = DanaDesa::where('id', $newDanaId)->lockForUpdate()->first();
+                    if (!$newDana) {
+                        DB::rollBack();
+                        return back()->withInput()->withErrors(['dana_desa_id' => 'Dana desa baru tidak ditemukan.']);
+                    }
+                    if ($newDana->jumlah < $newJumlah) {
+                        DB::rollBack();
+                        return back()->withInput()->withErrors(['jumlah' => 'Jumlah melebihi saldo dana desa yang tersedia.']);
+                    }
+                    $newDana->jumlah = $newDana->jumlah - $newJumlah;
+                    $newDana->save();
+                }
+            }
+
+            $keuangan->update($data);
+
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
 
         return redirect()->route(auth()->user()->role === 'admin' ? 'admin.keuangan.index' : 'staff.keuangan.index')
                          ->with('success', 'Catatan keuangan berhasil diperbarui.');
@@ -92,7 +176,26 @@ class KeuanganController extends Controller
     public function destroy(Keuangan $keuangan)
     {
         $this->authorizeView($keuangan);
-        $keuangan->delete();
+
+        // kembalikan dana jika catatan terkait dana desa
+        if ($keuangan->dana_desa_id) {
+            DB::beginTransaction();
+            try {
+                $dana = DanaDesa::where('id', $keuangan->dana_desa_id)->lockForUpdate()->first();
+                if ($dana) {
+                    $dana->jumlah = $dana->jumlah + $keuangan->jumlah;
+                    $dana->save();
+                }
+                $keuangan->delete();
+                DB::commit();
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+        } else {
+            $keuangan->delete();
+        }
+
         return back()->with('success', 'Catatan keuangan berhasil dihapus.');
     }
 
